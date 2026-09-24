@@ -39,23 +39,43 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_match_results_student_opportunity_version O
 ALTER TABLE public.match_results ENABLE ROW LEVEL SECURITY;
 
 -- Policy: students can view their own match results
+DROP POLICY IF EXISTS "Students can view own match results" ON public.match_results;
 CREATE POLICY "Students can view own match results" ON public.match_results
     FOR SELECT USING (
         auth.uid() = (SELECT profile_id FROM public.students WHERE id = match_results.student_id)
     );
 
 -- Policy: students can insert their own match results
+DROP POLICY IF EXISTS "Students can insert own match results" ON public.match_results;
 CREATE POLICY "Students can insert own match results" ON public.match_results
     FOR INSERT WITH CHECK (
-        auth.uid() = (SELECT profile_id FROM public.students WHERE id = NEW.student_id)
+        auth.uid() = (SELECT profile_id FROM public.students WHERE id = match_results.student_id)
     );
 
 -- Policy: students can update their own match results (e.g., marking stale)
+DROP POLICY IF EXISTS "Students can update own match results" ON public.match_results;
 CREATE POLICY "Students can update own match results" ON public.match_results
     FOR UPDATE USING (
         auth.uid() = (SELECT profile_id FROM public.students WHERE id = match_results.student_id)
     ) WITH CHECK (
-        auth.uid() = (SELECT profile_id FROM public.students WHERE id = NEW.student_id)
+        auth.uid() = (SELECT profile_id FROM public.students WHERE id = match_results.student_id)
     );
+
+-- 5. Auto-update updated_at timestamp trigger
+CREATE OR REPLACE FUNCTION public.handle_match_results_updated_at()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_match_results_updated_at ON public.match_results;
+CREATE TRIGGER trg_match_results_updated_at
+    BEFORE UPDATE ON public.match_results
+    FOR EACH ROW
+    EXECUTE FUNCTION public.handle_match_results_updated_at();
 
 -- Note: Service role operations (backend) use the service_role key and bypass RLS.
